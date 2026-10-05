@@ -563,7 +563,17 @@
   window.addEventListener('appinstalled', () => { $('installBar').hidden = true; });
   // iPhone：自動インストールの仕組みがないので、追加方法を表示する
   if (isIOS && !isStandalone && !dismissed) {
-    $('installText').innerHTML = 'ホーム画面に追加するには：下の共有ボタン<b>（□に↑）</b>→<b>「ホーム画面に追加」</b>';
+    const ua = navigator.userAgent;
+    let how;
+    if (/CriOS|FxiOS|EdgiOS/.test(ua)) {
+      // iPhoneのChrome等：共有ボタンはアドレスバーの右。メニューを下へスクロールした中にある
+      how = 'ホーム画面に追加するには：アドレスバー右の共有ボタン<b>（□に↑）</b>→ 一覧を下へスクロール →<b>「ホーム画面に追加」</b>' +
+            '<br><small>見つからない場合は、このアドレスを<b>Safari</b>で開いてください</small>';
+    } else {
+      // Safari：共有ボタンは画面下（iOS 26 は「…」の中）
+      how = 'ホーム画面に追加するには：共有ボタン<b>（□に↑）</b>※「…」の中にある場合あり →<b>「ホーム画面に追加」</b>';
+    }
+    $('installText').innerHTML = how;
     $('installBar').hidden = false;
   }
   $('btnInstallClose').onclick = () => {
