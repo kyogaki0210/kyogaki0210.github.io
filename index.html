@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f4f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="野帳">
+<title>野帳 音声メモ</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f3ee; --panel: #ffffff; --ink: #222; --sub: #666; --line: #d9d4c7;
+    --accent: #2f6f4f; --rec: #c62828; --wait: #b8860b; --idle: #888;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Yu Gothic UI", "Meiryo", sans-serif; }
+  header { padding: 12px 16px; background: var(--accent); color: #fff;
+           display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 20px; margin: 0; }
+  #today { font-size: 14px; opacity: .9; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+
+  .status { display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+            background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--idle); flex: none; }
+  .status.wait .dot { background: var(--wait); }
+  .status.rec .dot { background: var(--rec); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  #statusText { font-weight: bold; font-size: 17px; }
+  #hint { color: var(--sub); font-size: 13px; margin-left: auto; text-align: right; }
+
+  .buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+  button { font-size: 18px; font-weight: bold; padding: 16px 8px; border: none; border-radius: 8px;
+           color: #fff; cursor: pointer; font-family: inherit; }
+  button:disabled { opacity: .35; cursor: default; }
+  #btnStart { background: var(--accent); }
+  #btnStop  { background: var(--wait); }
+  #btnEnd   { background: var(--rec); }
+  .sub-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sub-buttons button { font-size: 14px; padding: 8px 12px; background: #555; font-weight: normal; }
+
+  .current { background: var(--panel); border: 2px solid var(--line); border-radius: 8px;
+             padding: 12px 14px; margin-bottom: 14px; min-height: 90px; }
+  .current.rec { border-color: var(--rec); }
+  .current .meta { color: var(--sub); font-size: 13px; margin-bottom: 6px; }
+  .current .label { font-size: 12px; color: var(--sub); margin-top: 6px; }
+  .current .body { font-size: 17px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+  .interim { color: #999; }
+
+  .tbl-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #ece8dd; white-space: nowrap; }
+  td.c-date, td.c-time { white-space: nowrap; }
+  td[contenteditable]:focus { outline: 2px solid var(--accent); background: #fffbe6; }
+  td.c-del { width: 1%; }
+  td.c-del button { font-size: 12px; padding: 4px 8px; background: #999; font-weight: normal; }
+  .empty { color: var(--sub); text-align: center; padding: 24px; }
+  .warn { background: #fdecea; color: #a00; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; display: none; }
+  .help { color: var(--sub); font-size: 13px; line-height: 1.7; margin-top: 16px; }
+
+  /* インストール案内 */
+  .install { display: flex; align-items: center; gap: 10px; background: #e6efe9; border: 1px solid #b9d1c3;
+             border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
+  .install img { width: 40px; height: 40px; border-radius: 8px; flex: none; }
+  .install .txt { flex: 1; min-width: 0; line-height: 1.5; }
+  .install button { background: var(--accent); font-size: 15px; padding: 10px 14px; flex: none; }
+  .install .x { background: none; color: var(--sub); padding: 4px 6px; font-size: 18px; }
+  #btnPhone { background: var(--accent); }
+
+  /* スマホに入れる（QR）画面 */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center;
+           justify-content: center; z-index: 20; padding: 16px; }
+  .modal .card { background: var(--panel); border-radius: 12px; padding: 22px; max-width: 380px; width: 100%; text-align: center; }
+  .modal h2 { margin: 0 0 6px; font-size: 18px; }
+  .modal p { margin: 6px 0; font-size: 14px; color: var(--sub); line-height: 1.6; }
+  #qr { display: inline-block; padding: 10px; background: #fff; margin: 10px 0; }
+  .modal .url { font-family: Consolas, monospace; font-size: 13px; word-break: break-all; color: var(--ink); }
+  .modal button { background: #555; font-size: 15px; padding: 10px 24px; margin-top: 8px; }
+
+  /* ---------- スマホ ---------- */
+  @media (max-width: 600px) {
+    header { padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top)); }
+    header h1 { font-size: 18px; }
+    main { padding: 12px 16px 130px; }
+    #hint { display: none; }
+    /* ボタンは親指で押せるよう画面下に固定 */
+    .buttons { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; z-index: 10;
+               padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom));
+               background: rgba(245,243,238,.96); border-top: 1px solid var(--line); }
+    .buttons button { font-size: 18px; padding: 20px 4px; }
+    .current .body { font-size: 18px; }
+    /* 表はカード表示に切り替え */
+    .tbl-wrap { background: none; border: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tr { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+         margin-bottom: 10px; padding: 8px 10px; position: relative; }
+    td { border: none; padding: 3px 0; }
+    td.c-date, td.c-time { display: inline-block; width: auto; color: var(--sub); font-size: 13px; margin-right: 8px; }
+    td[data-f]::before { display: block; font-size: 11px; color: var(--sub); }
+    td[data-f="content"]::before { content: "内容"; }
+    td[data-f="note"]::before { content: "備考"; }
+    td[data-f="note"]:empty { display: none; }
+    td.c-del { position: absolute; top: 6px; right: 8px; width: auto; padding: 0; }
+    td.empty { padding: 24px 0; }
+    .help { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>野帳 音声メモ</h1>
+  <span id="today"></span>
+</header>
+
+<main>
+  <div class="warn" id="warn"></div>
+
+  <!-- Android：インストールボタン ／ iPhone：ホーム画面への追加方法 -->
+  <div class="install" id="installBar" hidden>
+    <img src="icon-192.png" alt="">
+    <div class="txt" id="installText">ホーム画面にアプリとして追加できます</div>
+    <button id="btnInstall" hidden>インストール</button>
+    <button class="x" id="btnInstallClose" aria-label="閉じる">×</button>
+  </div>
+
+  <div class="status" id="status">
+    <span class="dot"></span>
+    <span id="statusText">停止中</span>
+    <span id="hint">「開始」ボタンを押してください</span>
+  </div>
+
+  <div class="buttons">
+    <button id="btnStart">開始</button>
+    <button id="btnStop" disabled>ストップ</button>
+    <button id="btnEnd" disabled>終了</button>
+  </div>
+
+  <div class="current" id="current">
+    <div class="meta" id="curMeta">待機中のメモはありません</div>
+    <div class="label">内容</div>
+    <div class="body" id="curContent"></div>
+    <div class="label">備考</div>
+    <div class="body" id="curNote"></div>
+  </div>
+
+  <div class="sub-buttons">
+    <button id="btnExport">Excel出力</button>
+    <button id="btnShare" hidden>Excelを共有（メール・LINE等）</button>
+    <button id="btnClear">記録をすべて消去</button>
+    <button id="btnPhone" hidden>スマホに入れる（QRコード）</button>
+  </div>
+
+  <div class="modal" id="qrModal" hidden>
+    <div class="card">
+      <h2>スマホに入れる</h2>
+      <p>スマホのカメラでQRコードを読み取ってください。</p>
+      <div id="qr"></div>
+      <div class="url" id="qrUrl"></div>
+      <p>開いたら、画面上の「インストール」（Android）<br>または 共有 →「ホーム画面に追加」（iPhone）</p>
+      <button id="btnQrClose">閉じる</button>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>日にち</th><th>時間</th><th>内容</th><th>備考</th><th></th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="help">
+    <b>使い方</b><br>
+    1. 「開始」ボタン → 音声待受け開始<br>
+    2. 「スタート」（start）と言う → 日付・時間が自動入力され、メモ入力開始<br>
+    3. 話した内容が「内容」に入ります。途中で「備考」と言うと、以降は「備考」欄に入ります<br>
+    4. 「ストップ」（stop）と言う／ボタン → 1メモ確定。再び「スタート」で次のメモ<br>
+    5. 「終了」と言う／ボタン → その日の記録を終了し、Excelを出力します<br>
+    ※ 合図の言葉は、少し間を置いて単独で言うと確実に認識されます。表の文字はクリックして修正できます。
+  </div>
+</main>
+
+<script>
+(() => {
+  const STORE_KEY = 'yachou-memos-v1';
+  const $ = id => document.getElementById(id);
+
+  // ---------- 状態 ----------
+  // idle: 停止中 / wait: 「スタート」待ち / rec: 1メモ入力中
+  let mode = 'idle';
+  let memos = load();
+  let cur = null;           // 入力中のメモ {date, time, content, note}
+  let curField = 'content'; // 'content' | 'note'
+  let interim = '';
+  let recog = null;
+  let wantListening = false;
+
+  // ---------- 合図の言葉 ----------
+  const norm = s => s.replace(/[\s、。，．,.!！?？「」]/g, '').toLowerCase();
+  const START_WORDS = ['スタート', 'start', 'すたーと'];
+  const STOP_WORDS  = ['ストップ', 'stop', 'すとっぷ'];
+  const END_WORDS   = ['終了', 'しゅうりょう'];
+  const NOTE_WORDS  = ['備考', 'びこう'];
+
+  // 末尾が合図の言葉なら、その前の文と合図を返す
+  function splitTail(text, words) {
+    const n = norm(text);
+    for (const w of words) {
+      if (n.endsWith(w)) {
+        // 元の文から合図部分を取り除く（大文字小文字・句読点を無視）
+        const re = new RegExp(w.split('').map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s、。，．,.!！?？]*').join('') + '$', 'i');
+        return { before: text.replace(re, '').trim(), hit: true };
+      }
+    }
+    return { before: text, hit: false };
+  }
+  const isOnly = (text, words) => words.includes(norm(text));
+  const containsAny = (text, words) => words.some(w => norm(text).includes(w));
+
+  // ---------- 音声認識 ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showWarn('このブラウザは音声入力に対応していません。Google Chrome または Microsoft Edge で開いてください。');
+    $('btnStart').disabled = true;
+  }
+
+  // スマホ（特にAndroid Chrome）は continuous=true だと結果が重複して返る不具合があるため、
+  // 1発話ずつ認識して onend で再開する方式にする
+  const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function startRecognition() {
+    recog = new SR();
+    recog.lang = 'ja-JP';
+    recog.continuous = !IS_MOBILE;
+    recog.interimResults = true;
+    recog.onresult = e => {
+      let tmp = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) handleFinal(r[0].transcript);
+        else tmp += r[0].transcript;
+      }
+      interim = tmp;
+      render();
+    };
+    recog.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        showWarn('マイクの使用が許可されていません。アドレスバーのマイクアイコンから許可してください。');
+        wantListening = false;
+        setMode('idle');
+      }
+      // no-speech / network などは onend で自動再開
+    };
+    // Chromeは無音が続くと認識が止まるので、待受け中は自動で再開する
+    recog.onend = () => {
+      // 1発話ずつ確定するスマホでは、未確定のまま終わった分も拾っておく
+      if (interim && IS_MOBILE) handleFinal(interim);
+      interim = '';
+      render();
+      if (wantListening && !document.hidden) {
+        setTimeout(() => {
+          if (!wantListening) return;
+          try { recog.start(); } catch (_) { startRecognition(); }
+        }, IS_MOBILE ? 150 : 0);
+      }
+    };
+    recog.start();
+  }
+
+  // 画面ロック・アプリ切替で認識が止まるので、画面に戻ったら再開する
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !wantListening) return;
+    try { recog.start(); } catch (_) {}
+    requestWakeLock();
+  });
+
+  // 待受け中は画面が自動で消えないようにする
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } } catch (_) {}
+  }
+  function releaseWakeLock() {
+    try { if (wakeLock) wakeLock.release(); } catch (_) {}
+    wakeLock = null;
+  }
+
+  // 確定した発話の処理（テスト用に window にも公開）
+  function handleFinal(raw) {
+    const text = raw.trim();
+    if (!text) return;
+
+    if (mode === 'wait') {
+      if (containsAny(text, END_WORDS)) return endDay();
+      if (containsAny(text, START_WORDS)) {
+        beginMemo();
+        // 「スタート ○○」と続けて話した場合、続きを内容に入れる
+        const n = text.replace(/^.*?(スタート|start|すたーと)[\s、。,.]*/i, '');
+        if (n) appendText(n);
+      }
+      return;
+    }
+
+    if (mode === 'rec') {
+      // 「終了」単独 → メモを確定して1日終了
+      if (isOnly(text, END_WORDS)) return endDay();
+      // 「ストップ」→ 1メモ確定
+      const stop = splitTail(text, STOP_WORDS);
+      if (stop.hit) {
+        if (stop.before) appendText(stop.before);
+        return finishMemo();
+      }
+      // 「備考」単独 → 以降は備考欄へ
+      if (isOnly(text, NOTE_WORDS)) { curField = 'note'; beep(660); return render(); }
+      // 「備考 ○○」 → 備考欄へ
+      const m = text.match(/^(備考|びこう)[\s、。,.]*(.+)$/);
+      if (m) { curField = 'note'; appendText(m[2]); return; }
+      appendText(text);
+    }
+  }
+  window.__yachouTest = { say: handleFinal, setMode: m => setMode(m) };
+
+  function appendText(t) {
+    if (!cur) return;
+    cur[curField] = cur[curField] ? cur[curField] + ' ' + t : t;
+    render();
+  }
+
+  // ---------- 操作 ----------
+  function begin() {
+    hideWarn();
+    wantListening = true;
+    setMode('wait');
+    startRecognition();
+    requestWakeLock();
+    beep(880);
+  }
+
+  function beginMemo() {
+    const d = new Date();
+    cur = { date: fmtDate(d), time: fmtTime(d), content: '', note: '' };
+    curField = 'content';
+    setMode('rec');
+    beep(1040);
+  }
+
+  function finishMemo() {
+    if (cur && (cur.content || cur.note)) {
+      memos.push(cur);
+      save();
+    }
+    cur = null;
+    if (mode === 'rec') setMode('wait');
+    beep(520);
+    render();
+  }
+
+  function endDay() {
+    if (cur) finishMemo();
+    wantListening = false;
+    if (recog) { try { recog.stop(); } catch (_) {} }
+    releaseWakeLock();
+    setMode('idle');
+    beep(400, 0.4);
+    if (memos.length) exportExcel();
+  }
+
+  // ---------- Excel出力 ----------
+  function exportExcel() {
+    const x = buildWorkbook();
+    if (x) XLSX.writeFile(x.wb, x.name);
+  }
+
+  // スマホの共有メニュー（メール・LINE・Drive等）でxlsxを渡す
+  async function shareExcel() {
+    const x = buildWorkbook();
+    if (!x) return;
+    const data = XLSX.write(x.wb, { bookType: 'xlsx', type: 'array' });
+    const file = new File([data], x.name,
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    try {
+      await navigator.share({ files: [file], title: x.name });
+    } catch (e) {
+      if (e.name !== 'AbortError') XLSX.writeFile(x.wb, x.name);
+    }
+  }
+
+  function buildWorkbook() {
+    if (!memos.length) { alert('記録がありません。'); return null; }
+    if (!window.XLSX) { alert('Excel出力ライブラリを読み込めませんでした（ネット接続を確認してください）。'); return null; }
+    const rows = [['日にち', '時間', '内容', '備考'], ...memos.map(m => [m.date, m.time, m.content, m.note])];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 60 }, { wch: 30 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '野帳');
+    const first = memos[0].date.replace(/\//g, '');
+    const last = memos[memos.length - 1].date.replace(/\//g, '');
+    const name = first === last ? `野帳_${first}.xlsx` : `野帳_${first}-${last}.xlsx`;
+    return { wb, name };
+  }
+
+  // ---------- 表示 ----------
+  function setMode(m) {
+    mode = m;
+    const st = $('status');
+    st.className = 'status ' + m;
+    $('statusText').textContent = { idle: '停止中', wait: '待受け中', rec: 'メモ入力中' }[m];
+    $('hint').textContent = {
+      idle: '「開始」ボタンを押してください',
+      wait: '「スタート」と言うとメモ開始／「終了」で1日終了',
+      rec: '「ストップ」でメモ確定／「備考」で備考欄へ'
+    }[m];
+    $('btnStart').disabled = m !== 'idle' || !SR;
+    $('btnStop').disabled = m !== 'rec';
+    $('btnEnd').disabled = m === 'idle';
+    render();
+  }
+
+  function render() {
+    const box = $('current');
+    box.className = 'current' + (mode === 'rec' ? ' rec' : '');
+    if (cur) {
+      $('curMeta').textContent = `${cur.date}　${cur.time}　（入力先：${curField === 'note' ? '備考' : '内容'}）`;
+      $('curContent').innerHTML = esc(cur.content) + (curField === 'content' && interim ? `<span class="interim"> ${esc(interim)}</span>` : '');
+      $('curNote').innerHTML = esc(cur.note) + (curField === 'note' && interim ? `<span class="interim"> ${esc(interim)}</span>` : '');
+    } else {
+      $('curMeta').textContent = mode === 'wait' ? '「スタート」と言うとメモが始まります' : '待機中のメモはありません';
+      $('curContent').innerHTML = interim ? `<span class="interim">${esc(interim)}</span>` : '';
+      $('curNote').textContent = '';
+    }
+    renderTable();
+  }
+
+  let lastTableKey = '';
+  function renderTable() {
+    const key = JSON.stringify(memos);
+    if (key === lastTableKey) return;
+    lastTableKey = key;
+    const tb = $('tbody');
+    if (!memos.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="empty">記録はまだありません</td></tr>';
+      return;
+    }
+    tb.innerHTML = memos.map((m, i) => `
+      <tr>
+        <td class="c-date">${esc(m.date)}</td>
+        <td class="c-time">${esc(m.time)}</td>
+        <td contenteditable data-i="${i}" data-f="content">${esc(m.content)}</td>
+        <td contenteditable data-i="${i}" data-f="note">${esc(m.note)}</td>
+        <td class="c-del"><button data-del="${i}">削除</button></td>
+      </tr>`).join('');
+  }
+
+  $('tbody').addEventListener('blur', e => {
+    const td = e.target;
+    if (!td.dataset || td.dataset.f === undefined) return;
+    memos[+td.dataset.i][td.dataset.f] = td.textContent.trim();
+    save();
+    lastTableKey = JSON.stringify(memos);
+  }, true);
+
+  $('tbody').addEventListener('click', e => {
+    const i = e.target.dataset && e.target.dataset.del;
+    if (i === undefined) return;
+    if (!confirm('このメモを削除しますか？')) return;
+    memos.splice(+i, 1);
+    save();
+    render();
+  });
+
+  // ---------- 補助 ----------
+  const pad = n => String(n).padStart(2, '0');
+  const fmtDate = d => `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+  const fmtTime = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (_) { return []; }
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(memos)); } catch (_) {}
+  }
+  function showWarn(t) { $('warn').textContent = t; $('warn').style.display = 'block'; }
+  function hideWarn() { $('warn').style.display = 'none'; }
+
+  // 合図音（ハンズフリーで状態が分かるように）
+  let actx = null;
+  function beep(freq, dur = 0.15) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.15, actx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+      o.connect(g).connect(actx.destination);
+      o.start(); o.stop(actx.currentTime + dur);
+    } catch (_) {}
+  }
+
+  // ---------- ボタン ----------
+  $('btnStart').onclick = begin;
+  $('btnStop').onclick = finishMemo;
+  $('btnEnd').onclick = endDay;
+  $('btnExport').onclick = exportExcel;
+  $('btnShare').onclick = shareExcel;
+  try {
+    $('btnShare').hidden = !(navigator.canShare &&
+      navigator.canShare({ files: [new File([''], 'a.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })] }));
+  } catch (_) {}
+  $('btnClear').onclick = () => {
+    if (!memos.length) return;
+    if (!confirm('記録をすべて消去します。先にExcel出力しましたか？')) return;
+    memos = [];
+    save();
+    render();
+  };
+
+  // ---------- スマホへのインストール ----------
+  // 公開先のアドレス（GitHub Pages 公開後に設定）。PCの「スマホに入れる」QRコードに使う
+  const PUBLIC_URL = '';
+  const phoneUrl = PUBLIC_URL ||
+    (location.protocol === 'https:' ? location.href.split('#')[0].replace(/index\.html$/, '') : '');
+
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const INSTALL_KEY = 'yachou-install-dismissed';
+  const dismissed = (() => { try { return localStorage.getItem(INSTALL_KEY) === '1'; } catch (_) { return false; } })();
+
+  let installPrompt = null;
+  // Android（Chrome）：ワンタップでインストールできるボタンを出す
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installPrompt = e;
+    if (dismissed || isStandalone) return;
+    $('installText').textContent = 'ホーム画面にアプリとして追加できます';
+    $('btnInstall').hidden = false;
+    $('installBar').hidden = false;
+  });
+  $('btnInstall').onclick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    $('installBar').hidden = true;
+  };
+  window.addEventListener('appinstalled', () => { $('installBar').hidden = true; });
+  // iPhone：自動インストールの仕組みがないので、追加方法を表示する
+  if (isIOS && !isStandalone && !dismissed) {
+    $('installText').innerHTML = 'ホーム画面に追加するには：下の共有ボタン<b>（□に↑）</b>→<b>「ホーム画面に追加」</b>';
+    $('installBar').hidden = false;
+  }
+  $('btnInstallClose').onclick = () => {
+    $('installBar').hidden = true;
+    try { localStorage.setItem(INSTALL_KEY, '1'); } catch (_) {}
+  };
+
+  // PC：スマホで読み取るQRコードを表示
+  if (!IS_MOBILE && phoneUrl) $('btnPhone').hidden = false;
+  $('btnPhone').onclick = () => {
+    $('qr').innerHTML = '';
+    if (window.QRCode) new QRCode($('qr'), { text: phoneUrl, width: 220, height: 220 });
+    $('qrUrl').textContent = phoneUrl;
+    $('qrModal').hidden = false;
+  };
+  $('btnQrClose').onclick = () => { $('qrModal').hidden = true; };
+  $('qrModal').onclick = e => { if (e.target === $('qrModal')) $('qrModal').hidden = true; };
+
+  $('today').textContent = fmtDate(new Date());
+  setMode('idle');
+})();
+</script>
+</body>
+</html>
